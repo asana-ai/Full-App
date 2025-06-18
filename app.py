@@ -13,6 +13,7 @@ from gtts import gTTS
 import pygame
 
 from pose import record_audio, transcribe_audio, identify_pain_area
+from emotion_detector import detect_emotion_from_frame
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
@@ -31,6 +32,7 @@ class VoiceFeedbackSystem:
         except pygame.error as e:
             print(f"Warning: Could not initialize audio system: {e}")
             self.audio_enabled = False
+
         self.encouragement_messages = [
             "You're doing great! Keep it up!",
             "Excellent form! Stay steady!",
@@ -44,7 +46,7 @@ class VoiceFeedbackSystem:
             'left_hip': "Straighten your left hip",
             'right_hip': "Adjust your right hip position",
             'left_shoulder': "Relax your left shoulder",
-            'right_shoulder': "Relax your right shoulder", 
+            'right_shoulder': "Relax your right shoulder",
             'left_elbow': "Adjust your left arm position",
             'right_elbow': "Adjust your right arm position"
         }
@@ -64,6 +66,7 @@ class VoiceFeedbackSystem:
         if not self.audio_enabled:
             print(f"Audio disabled. Would say: '{text}'")
             return
+
         def play_audio():
             temp_file = None
             try:
@@ -83,6 +86,7 @@ class VoiceFeedbackSystem:
                         os.unlink(temp_file.name)
                     except:
                         pass
+
         threading.Thread(target=play_audio, daemon=True).start()
 
     def should_give_feedback(self):
@@ -117,47 +121,31 @@ class VoiceFeedbackSystem:
 
 voice_feedback = VoiceFeedbackSystem()
 
-# --- Pose Accuracy Model Setup ---
+# --- Pose Accuracy Setup ---
 clf = joblib.load('tree_pose_classifier.pkl')
 mp_pose = mp.solutions.pose
 pose = mp_pose.Pose(static_image_mode=False, min_detection_confidence=0.5)
 
-ANGLE_NAMES = [
-    'left_knee', 'right_knee',
-    'left_hip', 'right_hip',
-    'left_shoulder', 'right_shoulder',
-    'left_elbow', 'right_elbow'
-]
+ANGLE_NAMES = ['left_knee', 'right_knee', 'left_hip', 'right_hip',
+               'left_shoulder', 'right_shoulder', 'left_elbow', 'right_elbow']
 ANGLE_LANDMARKS = {
-    'left_knee': [23, 25, 27],
-    'right_knee': [24, 26, 28],
-    'left_hip': [11, 23, 25],
-    'right_hip': [12, 24, 26],
-    'left_shoulder': [13, 11, 23],
-    'right_shoulder': [14, 12, 24],
-    'left_elbow': [15, 13, 11],
-    'right_elbow': [16, 14, 12],
+    'left_knee': [23, 25, 27], 'right_knee': [24, 26, 28],
+    'left_hip': [11, 23, 25], 'right_hip': [12, 24, 26],
+    'left_shoulder': [13, 11, 23], 'right_shoulder': [14, 12, 24],
+    'left_elbow': [15, 13, 11], 'right_elbow': [16, 14, 12],
 }
 ANGLE_THRESHOLDS = {
-    'left_knee': (170, 185),
-    'right_knee': (40, 60),
-    'left_hip': (167, 185),
-    'right_hip': (101, 123),
-    'left_shoulder': (149, 185),
-    'right_shoulder': (153, 185),
-    'left_elbow': (125, 164),
-    'right_elbow': (126, 169),
+    'left_knee': (170, 185), 'right_knee': (40, 60),
+    'left_hip': (167, 185), 'right_hip': (101, 123),
+    'left_shoulder': (149, 185), 'right_shoulder': (153, 185),
+    'left_elbow': (125, 164), 'right_elbow': (126, 169),
 }
 
 def calculate_angle(a, b, c):
-    a = np.array(a)
-    b = np.array(b)
-    c = np.array(c)
-    ba = a - b
-    bc = c - b
+    a, b, c = np.array(a), np.array(b), np.array(c)
+    ba, bc = a - b, c - b
     cosine_angle = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc))
-    angle = np.arccos(np.clip(cosine_angle, -1.0, 1.0))
-    return np.degrees(angle)
+    return np.degrees(np.arccos(np.clip(cosine_angle, -1.0, 1.0)))
 
 def get_coords(landmarks, idx, width, height):
     lm = landmarks[idx]
@@ -172,8 +160,7 @@ def extract_angles(landmarks, width, height):
         angles[name] = calculate_angle(a, b, c)
     return angles
 
-# --- ROUTES ---
-
+# --- Routes ---
 @app.route('/')
 def home():
     return render_template('voice.html')
@@ -198,7 +185,6 @@ def get_poses():
 @app.route('/start_session', methods=['POST'])
 def start_session():
     poses = request.json.get('poses', [])
-    # Fallback if poses is empty or not a list of dicts
     if not poses or not isinstance(poses, list) or not isinstance(poses[0], dict):
         poses = [{'name': 'tree', 'image': 'images/test.jpg'}]
     session['pose_sequence'] = poses
@@ -209,7 +195,6 @@ def start_session():
 def pose_accuracy():
     pose_sequence = session.get('pose_sequence', [])
     current_index = session.get('current_pose_index', 0)
-    # Fallback if pose_sequence is empty or index out of range
     if not pose_sequence or current_index >= len(pose_sequence):
         pose = {'name': 'tree', 'image': 'images/test.jpg'}
     else:
@@ -223,10 +208,16 @@ def predict():
     file = request.files['frame']
     npimg = np.frombuffer(file.read(), np.uint8)
     frame = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+
+    # ✅ Emotion detection
+    emotion, emotions = detect_emotion_from_frame(frame)
+
+    # Pose detection
     img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     results = pose.process(img_rgb)
     correct = False
     incorrect_angles = {}
+
     if results.pose_landmarks:
         landmarks = results.pose_landmarks.landmark
         height, width = frame.shape[:2]
@@ -248,9 +239,16 @@ def predict():
             cv2.line(frame, b, c, color, 4)
             cv2.putText(frame, f"{int(angle)}", b, cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
         voice_feedback.give_feedback(correct, incorrect_angles if not correct else None)
+
+    cv2.putText(frame, f"Emotion: {emotion}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
     _, buffer = cv2.imencode('.jpg', frame)
     frame_b64 = base64.b64encode(buffer).decode('utf-8')
-    return jsonify({'correct': correct, 'frame': frame_b64})
+
+    return jsonify({
+        'frame': frame_b64,
+        'correct': correct,
+        'emotion': emotion
+    })
 
 if __name__ == '__main__':
     app.run(debug=True)

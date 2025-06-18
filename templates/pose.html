@@ -72,6 +72,18 @@
             border: 2px solid #444;
             filter: hue-rotate(20deg) brightness(1.1) contrast(1.1);
         }
+        #emotion-display {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            z-index: 999;
+        }
         @media (max-width: 900px) {
             #container { flex-direction: column; align-items: center; }
             #webcam, #reference { width: 90vw; height: 60vw; max-width: 400px; max-height: 600px; }
@@ -86,8 +98,14 @@
         <img id="webcam" width="400" height="600"/>
         <img id="reference" src="{{ url_for('static', filename='images/reference.png') }}" width="400" height="600"/>
     </div>
+
+    <!-- Emotion Display -->
+    <div id="emotion-display">
+        Emotion: <span id="emotion-text">Detecting...</span>
+    </div>
+
     <script>
-        let timer = 0;  // Start from 0
+        let timer = 0;
         let interval = null;
         let running = false;
         let stream = null;
@@ -104,21 +122,19 @@
         function startTimer() {
             if (!interval) {
                 interval = setInterval(() => {
-                    if (running) {  // If pose is correct
-                        timer++;    // Increment timer
+                    if (running) {
+                        timer++;
                         updateTimer();
                     }
                 }, 1000);
             }
         }
 
-        // Webcam setup
         navigator.mediaDevices.getUserMedia({ video: true }).then(s => {
             stream = s;
             video.srcObject = stream;
         });
 
-        // Send frames to backend for pose checking and display annotated frame
         function sendFrame() {
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
                 let canvas = document.createElement('canvas');
@@ -133,11 +149,17 @@
                         .then(response => response.json())
                         .then(data => {
                             running = data.correct;
-                            document.getElementById('feedback').innerText = running ? 
-                                `Correct Pose! Time: ${Math.floor(timer / 60)}:${(timer % 60).toString().padStart(2, '0')}` : 
+                            document.getElementById('feedback').innerText = running ?
+                                `Correct Pose! Time: ${Math.floor(timer / 60)}:${(timer % 60).toString().padStart(2, '0')}` :
                                 "Incorrect Pose! Timer paused.";
                             document.getElementById('webcam').src = 'data:image/jpeg;base64,' + data.frame;
                             document.getElementById('webcam').className = running ? 'correct' : 'incorrect';
+
+                            // ✅ Update emotion
+                            if (data.emotion) {
+                                document.getElementById('emotion-text').textContent =
+                                    data.emotion.charAt(0).toUpperCase() + data.emotion.slice(1);
+                            }
                         });
                 }, 'image/jpeg');
             }
