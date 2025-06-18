@@ -1,0 +1,14 @@
+flask
+opencv-python
+mediapipe
+numpy
+joblib
+gtts
+pygame
+sounddevice
+scipy
+SpeechRecognition
+deepface
+pyaudio
+tf-keras
+scikit-learn

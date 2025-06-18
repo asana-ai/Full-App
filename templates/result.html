@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Result{% endblock %}
+{% block content %}
+<h2>Session Result</h2>
+<p>Your detected emotion: <b>{{ emotion }}</b></p>
+<p>{{ suggestion }}</p>
+<a href="{{ url_for('index') }}">Back to Home</a>
+{% endblock %}

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Tree Pose Timer</title>
+    <link href="https://fonts.googleapis.com/css?family=Montserrat:700,400&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background: #181c24;
+            color: #f3f3f3;
+            font-family: 'Montserrat', Arial, sans-serif;
+            min-height: 100vh;
+            margin: 0;
+        }
+        h1 {
+            text-align: center;
+            margin-top: 30px;
+            font-size: 2.5em;
+            letter-spacing: 2px;
+            color: #7fffd4;
+            text-shadow: 0 0 10px #7fffd4, 0 0 40px #222;
+        }
+        #timer {
+            font-size: 3em;
+            text-align: center;
+            margin: 30px 0 10px 0;
+            font-weight: bold;
+            letter-spacing: 2px;
+            color: #fff;
+            background: linear-gradient(90deg, #7fffd4 0%, #1e90ff 100%);
+            border-radius: 20px;
+            width: 220px;
+            margin-left: auto;
+            margin-right: auto;
+            box-shadow: 0 0 20px #1e90ff44;
+            padding: 10px 0;
+        }
+        #feedback {
+            font-size: 1.3em;
+            text-align: center;
+            margin: 10px 0 30px 0;
+            color: #ffb347;
+            min-height: 1.5em;
+            letter-spacing: 1px;
+        }
+        #container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+        #webcam, #reference {
+            width: 900px;
+            height: 1000px;
+            object-fit: cover;
+            border-radius: 18px;
+            box-shadow: 0 0 30px #222a, 0 0 10px #7fffd4aa;
+            background: #222;
+            border: 4px solid #333;
+            transition: border 0.3s, box-shadow 0.3s;
+            display: block;
+        }
+        #webcam.correct {
+            border: 4px solid #00e676;
+            box-shadow: 0 0 30px #00e67699, 0 0 8px #7fffd4aa;
+        }
+        #webcam.incorrect {
+            border: 4px solid #ff1744;
+            box-shadow: 0 0 30px #ff174499, 0 0 8px #7fffd4aa;
+        }
+        #reference {
+            border: 2px solid #444;
+            filter: hue-rotate(20deg) brightness(1.1) contrast(1.1);
+        }
+        @media (max-width: 900px) {
+            #container { flex-direction: column; align-items: center; }
+            #webcam, #reference { width: 90vw; height: 60vw; max-width: 400px; max-height: 600px; }
+        }
+    </style>
+</head>
+<body>
+    <h1>Tree Pose</h1>
+    <div id="timer">01:00</div>
+    <div id="feedback"></div>
+    <div id="container">
+        <img id="webcam" width="400" height="600"/>
+        <img id="reference" src="{{ url_for('static', filename='images/reference.png') }}" width="400" height="600"/>
+    </div>
+    <script>
+        let timer = 0;  // Start from 0
+        let interval = null;
+        let running = false;
+        let stream = null;
+        let video = document.createElement('video');
+        video.setAttribute('autoplay', '');
+        video.setAttribute('playsinline', '');
+
+        function updateTimer() {
+            let min = String(Math.floor(timer / 60)).padStart(2, '0');
+            let sec = String(timer % 60).padStart(2, '0');
+            document.getElementById('timer').innerText = `${min}:${sec}`;
+        }
+
+        function startTimer() {
+            if (!interval) {
+                interval = setInterval(() => {
+                    if (running) {  // If pose is correct
+                        timer++;    // Increment timer
+                        updateTimer();
+                    }
+                }, 1000);
+            }
+        }
+
+        // Webcam setup
+        navigator.mediaDevices.getUserMedia({ video: true }).then(s => {
+            stream = s;
+            video.srcObject = stream;
+        });
+
+        // Send frames to backend for pose checking and display annotated frame
+        function sendFrame() {
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                let canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                let ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                canvas.toBlob(blob => {
+                    let formData = new FormData();
+                    formData.append('frame', blob, 'frame.jpg');
+                    fetch('/predict', { method: 'POST', body: formData })
+                        .then(response => response.json())
+                        .then(data => {
+                            running = data.correct;
+                            document.getElementById('feedback').innerText = running ? 
+                                `Correct Pose! Time: ${Math.floor(timer / 60)}:${(timer % 60).toString().padStart(2, '0')}` : 
+                                "Incorrect Pose! Timer paused.";
+                            document.getElementById('webcam').src = 'data:image/jpeg;base64,' + data.frame;
+                            document.getElementById('webcam').className = running ? 'correct' : 'incorrect';
+                        });
+                }, 'image/jpeg');
+            }
+        }
+
+        setInterval(sendFrame, 100);
+        updateTimer();
+        startTimer();
+    </script>
+</body>
+</html>

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Yoga Pose Suggester</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #1a2533;
+            color: #ffd700;
+        }
+        .container {
+            background-color: #233142;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.3);
+        }
+        .main-header {
+            font-size: 3.5rem;
+            color: #ffd700;
+            text-align: center;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            margin-bottom: 2rem;
+        }
+        button {
+            background-color: #ffd700;
+            color: #233142;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: bold;
+            transition: transform 0.2s, box-shadow 0.2s;
+            display: block;
+            margin: 20px auto;
+        }
+        button:hover {
+            background-color: #ffed4a;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 215, 0, 0.3);
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #result {
+            margin-top: 30px;
+        }
+        .pose-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 2rem;
+            justify-content: center;
+        }
+        .pose-card {
+            background: #2c3e50;
+            border-radius: 12px;
+            padding: 1.5rem 1rem 1rem 1rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 200px;
+            border-left: 4px solid #ffd700;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .pose-image {
+            width: 150px;
+            height: 150px;
+            object-fit: cover;
+            border-radius: 8px;
+            border: 2px solid #ffd700;
+            margin-bottom: 10px;
+        }
+        .pose-img {
+            width: 150px;
+            height: 150px;
+            object-fit: cover;
+            border-radius: 8px;
+            border: 2px solid #ffd700;
+            margin-bottom: 10px;
+        }
+        .pose-name {
+            font-size: 1.2em;
+            color: #ffd700;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .pain-area-header {
+            background-color: #34495e;
+            padding: 1rem;
+            border-radius: 8px;
+            text-align: center;
+            color: #ffd700;
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin: 1rem 0;
+        }
+        p {
+            font-size: 1.2em;
+            text-align: center;
+            line-height: 1.6;
+        }
+        h3 {
+            color: #ffd700;
+            font-size: 1.8em;
+            margin-top: 25px;
+        }
+        .error {
+            color: #ff6b6b;
+            text-align: center;
+            font-weight: bold;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        #result {
+            animation: fadeIn 0.5s ease-in;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="main-header">🧘‍♀️ Yoga Pose Suggester</h1>
+        <p>Click the button and describe your pain area (e.g., "My lower back hurts")</p>
+        <button onclick="recordAudio()">Start Recording</button>
+        <div id="result"></div>
+
+        <div id="pose-suggestions" style="display:none;">
+            <h3>Suggested Poses</h3>
+            <div id="voice-result"></div>
+            <ul id="pose-list" class="pose-list"></ul>
+            <button id="start-session-btn" style="margin-top:2rem;">Start Workout</button>
+        </div>
+    </div>
+
+    <script>
+let suggestedPoses = [];
+
+function recordAudio() {
+    const button = document.querySelector('button');
+    const result = document.getElementById('result');
+    button.disabled = true;
+    button.textContent = 'Recording...';
+    result.innerHTML = '';
+
+    fetch('/get_poses', { method: 'POST' })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success && data.poses) {
+            suggestedPoses = data.poses.map(p => typeof p === 'string' ? {name: p, image: 'test.jpg'} : p);
+            // Show what the user said and the pain area
+            document.getElementById('voice-result').innerHTML = `
+                <p><b>You said:</b> "${data.text}"</p>
+                <div class="pain-area-header">
+                    ${data.pain_area ? "🎯 Detected Pain Area: " + data.pain_area : "🧘‍♀️ General Yoga Routine"}
+                </div>
+                <p><b>Suggested Asanas:</b></p>
+            `;
+            showPoseSuggestions(suggestedPoses);
+        } else {
+            result.innerHTML = `<p class="error">Error: ${data.error}</p>`;
+        }
+    })
+    .catch(error => {
+        result.innerHTML = `<p class="error">Error: ${error}</p>`;
+    })
+    .finally(() => {
+        button.disabled = false;
+        button.textContent = 'Start Recording';
+    });
+}
+
+function showPoseSuggestions(poses) {
+    const poseList = document.getElementById('pose-list');
+    poseList.innerHTML = '';
+    poses.forEach((pose, idx) => {
+        const li = document.createElement('li');
+        li.className = "pose-card";
+        li.innerHTML = `
+            <img src="/static/${pose.image}" class="pose-img">
+            <div class="pose-name">${idx+1}. ${pose.name}</div>
+        `;
+        poseList.appendChild(li);
+    });
+    document.getElementById('pose-suggestions').style.display = 'block';
+}
+
+document.getElementById('start-session-btn').onclick = function() {
+    fetch('/start_session', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({poses: suggestedPoses})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.redirect) {
+            window.location.href = data.redirect;
+        }
+    });
+};
+    </script>
+</body>
+</html>
