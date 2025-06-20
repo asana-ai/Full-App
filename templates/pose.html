@@ -79,12 +79,12 @@
     </style>
 </head>
 <body>
-    <h1>Tree Pose</h1>
-    <div id="timer">01:00</div>
+    <h1>{{ pose_name }}</h1>
+    <div id="timer">00:00</div>
     <div id="feedback"></div>
     <div id="container">
         <img id="webcam" width="400" height="600"/>
-        <img id="reference" src="{{ url_for('static', filename='images/reference.png') }}" width="400" height="600"/>
+        <img id="reference" src="{{ pose_image }}" width="400" height="600"/>
     </div>
     <script>
         let timer = 0;  // Start from 0

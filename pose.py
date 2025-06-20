@@ -1,14 +1,16 @@
 import sounddevice as sd
 from scipy.io.wavfile import write
 import speech_recognition as sr
+import json
 
-def record_audio(duration=5, fs=44100, filename="output.wav"):
-    print("Recording...")
-    audio = sd.rec(int(duration * fs), samplerate=fs, channels=1, dtype='int16')
-    sd.wait()
-    write(filename, fs, audio)
-    print("Recording finished.")
+# --- Load Pose Data from JSON at startup ---
+with open('poses.json', 'r') as f:
+    all_poses_data = json.load(f)['poses']
 
+# Create a lookup dictionary for quick access by name
+poses_lookup = {pose['name']: pose for pose in all_poses_data}
+
+# --- Pain to Poses Mapping (uses pose names) ---
 pain_to_poses = {
     "back": ["Bridge", "Cat", "Cow", "Child's Pose", "Wheel"],
     "lower back": ["Bridge", "Child's Pose", "Cat", "Cow"],
@@ -32,39 +34,49 @@ pain_to_poses = {
     "relaxation": ["Child's Pose", "Sphinx", "Seated Forward Bend"],
 }
 
-default_poses = ["Mountain Pose", "Tree Pose", "Corpse Pose", "Butterfly Pose", "Legs Up the Wall"]
+default_poses_names = ["Mountain Pose", "Tree Pose", "Corpse Pose", "Butterfly Pose", "Legs Up the Wall"]
 
-def get_pose_with_image(pose_name: str) -> dict:
-    return {
-        'name': pose_name,
-        'image': 'images/test.jpg'  # Correct: relative to static/
-    }
+def record_audio(duration=5, fs=44100, filename="output.wav"):
+    print("Recording...")
+    audio = sd.rec(int(duration * fs), samplerate=fs, channels=1, dtype='int16')
+    sd.wait()
+    write(filename, fs, audio)
+    print("Recording finished.")
 
-def get_safe_poses(pain_area: str) -> list:
-    # Create a pool of all poses excluding the ones for the painful area
-    safe_poses = []
-    for area, poses in pain_to_poses.items():
-        if area != pain_area:
-            safe_poses.extend(poses)
-    
-    # Randomly select 5 unique poses and add image info
-    from random import sample
-    selected_poses = sample(safe_poses, 5)
-    return [get_pose_with_image(pose) for pose in selected_poses]
+def transcribe_audio(filename="output.wav"):
+    recognizer = sr.Recognizer()
+    with sr.AudioFile(filename) as source:
+        audio = recognizer.record(source)
+    try:
+        text = recognizer.recognize_google(audio)
+        return text
+    except sr.UnknownValueError:
+        print("Speech Recognition could not understand audio.")
+        return None
+    except sr.RequestError as e:
+        print(f"Could not request results from Google Speech Recognition service; {e}")
+        return None
 
 def identify_pain_area(text: str) -> dict:
+    """
+    Identifies the pain area from text and returns a list of full pose objects.
+    """
     text = text.lower()
-    for pain_area in pain_to_poses:
+    pain_area_found = "general"
+    recommended_pose_names = default_poses_names
+
+    for pain_area, pose_names in pain_to_poses.items():
         if pain_area in text:
-            poses = pain_to_poses[pain_area]
-            return {
-                'pain_area': pain_area,
-                'poses': [get_pose_with_image(pose) for pose in poses]
-            }
-    # Default
+            pain_area_found = pain_area
+            recommended_pose_names = pose_names
+            break
+
+    # Use the lookup table to get the full pose objects for the recommended names
+    recommended_poses = [poses_lookup[name] for name in recommended_pose_names if name in poses_lookup]
+
     return {
-        'pain_area': None,
-        'poses': [get_pose_with_image(pose) for pose in default_poses]
+        'pain_area': pain_area_found,
+        'poses': recommended_poses
     }
 
 def suggest_yoga_poses():
@@ -81,20 +93,6 @@ def suggest_yoga_poses():
             print(f"{i}. {pose['name']}")
     else:
         print("❌ Could not process your request. Please try again.")
-
-def transcribe_audio(filename="output.wav"):
-    recognizer = sr.Recognizer()
-    with sr.AudioFile(filename) as source:
-        audio = recognizer.record(source)
-    try:
-        text = recognizer.recognize_google(audio)
-        return text
-    except sr.UnknownValueError:
-        print("Speech Recognition could not understand audio.")
-        return None
-    except sr.RequestError as e:
-        print(f"Could not request results from Google Speech Recognition service; {e}")
-        return None
 
 if __name__ == "__main__":
     suggest_yoga_poses()
