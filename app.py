@@ -13,6 +13,7 @@ from gtts import gTTS
 import pygame
 
 from pose import record_audio, transcribe_audio, identify_pain_area
+from emotion_detector import detect_emotion_from_frame
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
@@ -220,13 +221,17 @@ def pose_accuracy():
 
 @app.route('/predict', methods=['POST'])
 def predict():
+    detect_emotion = request.form.get('detect_emotion', 'false').lower() == 'true'
     file = request.files['frame']
     npimg = np.frombuffer(file.read(), np.uint8)
     frame = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+
+    # Pose detection
     img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     results = pose.process(img_rgb)
     correct = False
     incorrect_angles = {}
+
     if results.pose_landmarks:
         landmarks = results.pose_landmarks.landmark
         height, width = frame.shape[:2]
@@ -247,10 +252,24 @@ def predict():
             cv2.line(frame, a, b, color, 4)
             cv2.line(frame, b, c, color, 4)
             cv2.putText(frame, f"{int(angle)}", b, cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
         voice_feedback.give_feedback(correct, incorrect_angles if not correct else None)
+
+    # Detect emotion ONLY if detect_emotion is True
+    if detect_emotion:
+        emotion, emotions = detect_emotion_from_frame(frame)
+    else:
+        emotion = "undetected"
+
+    # Draw emotion on frame
+    cv2.putText(frame, f"Emotion: {emotion}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
     _, buffer = cv2.imencode('.jpg', frame)
     frame_b64 = base64.b64encode(buffer).decode('utf-8')
-    return jsonify({'correct': correct, 'frame': frame_b64})
 
+    return jsonify({
+        'frame': frame_b64,
+        'correct': correct,
+        'emotion': emotion
+    })
 if __name__ == '__main__':
     app.run(debug=True)
