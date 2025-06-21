@@ -1,3 +1,5 @@
+# emotion_detector.py
+# This module provides functionality to detect emotions from video frames using the FER library.
 from fer import FER
 
 # Initialize once to avoid reloading the model every time
