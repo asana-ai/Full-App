@@ -8,7 +8,6 @@ pygame
 sounddevice
 scipy
 SpeechRecognition
-deepface
 pyaudio
 tf-keras
 scikit-learn
