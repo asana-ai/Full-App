@@ -106,12 +106,12 @@
         <img id="webcam" width="400" height="600"/>
         <img id="reference" src="{{ pose_image }}" width="400" height="600"/>
     </div>
-    <script>
-        let timer = 0;  // Start from 0
+    <script>        let timer = 0;  // Start from 0
         let interval = null;
         let running = false;
         let stream = null;
         let video = document.createElement('video');
+        let currentEmotion = 'neutral'; // Track current emotion
         video.setAttribute('autoplay', '');
         video.setAttribute('playsinline', '');
 
@@ -119,17 +119,99 @@
             let min = String(Math.floor(timer / 60)).padStart(2, '0');
             let sec = String(timer % 60).padStart(2, '0');
             document.getElementById('timer').innerText = `${min}:${sec}`;
-        }
-
-        function startTimer() {
+        }        function startTimer() {
             if (!interval) {
                 interval = setInterval(() => {
                     if (running) {  // If pose is correct
                         timer++;    // Increment timer
                         updateTimer();
+                        
+                        // Check if 60 seconds completed
+                        if (timer >= 60) {
+                            goToNextPose();
+                        }
                     }
                 }, 1000);
             }
+        }        function goToNextPose() {
+            // Stop current timer
+            if (interval) {
+                clearInterval(interval);
+                interval = null;
+            }
+            
+            // Show transition message
+            document.getElementById('feedback').innerText = "Analyzing your emotion and adapting...";
+            
+            // Call backend to get next pose with emotion data
+            fetch('/next_pose', { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ emotion: currentEmotion })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.workout_complete) {
+                        // Workout finished
+                        document.getElementById('feedback').innerText = data.message;
+                        document.getElementById('timer').innerText = "DONE!";
+                        
+                        // Use backend TTS for completion message
+                        fetch('/announce_next_pose', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ 
+                                pose_name: 'workout complete',
+                                emotion: currentEmotion,
+                                recommendation_type: 'complete'
+                            })
+                        });
+                        
+                        // Redirect to home after a few seconds
+                        setTimeout(() => {
+                            window.location.href = '/';
+                        }, 8000);
+                    } else {
+                        // Start countdown and announcement using backend TTS
+                        let feedbackText = "Listen for personalized recommendation...";
+                        if (data.recommendation_type === 'easier') {
+                            feedbackText = "Adapting to easier pose based on your emotion...";
+                        } else if (data.recommendation_type === 'more challenging') {
+                            feedbackText = "Suggesting more challenging pose - you're doing great!";
+                        }
+                        document.getElementById('feedback').innerText = feedbackText;
+                        
+                        // Call backend TTS with emotion-based countdown
+                        fetch('/announce_next_pose', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ 
+                                pose_name: data.pose_name,
+                                emotion: data.emotion,
+                                recommendation_type: data.recommendation_type
+                            })
+                        });
+                        
+                        // Update UI after announcement delay (about 8 seconds for announcement + countdown)
+                        setTimeout(() => {
+                            // Update to next pose
+                            document.querySelector('h1').innerText = data.pose_name;
+                            document.getElementById('reference').src = data.pose_image;
+                            document.getElementById('feedback').innerText = "Hold the pose correctly to start timer!";
+                            
+                            // Reset timer
+                            timer = 0;
+                            updateTimer();
+                            
+                            // Start timer
+                            startTimer();
+                        }, 8000); // Wait for TTS announcement to complete
+                    }
+                })
+                .catch(error => {
+                    console.error('Error advancing to next pose:', error);
+                    document.getElementById('feedback').innerText = "Error advancing to next pose";
+                });
         }
 
         // Webcam setup
@@ -163,10 +245,9 @@
                         `Correct Pose! Time: ${Math.floor(timer / 60)}:${(timer % 60).toString().padStart(2, '0')}` :
                         "Incorrect Pose! Timer paused.";
                     document.getElementById('webcam').src = 'data:image/jpeg;base64,' + data.frame;
-                    document.getElementById('webcam').className = running ? 'correct' : 'incorrect';
-
-                    // ✅ Update emotion
+                    document.getElementById('webcam').className = running ? 'correct' : 'incorrect';                    // ✅ Update emotion
                     if (data.emotion && data.emotion !== 'undetected') {
+                        currentEmotion = data.emotion; // Store current emotion
                         document.getElementById('emotion-text').textContent =
                             data.emotion.charAt(0).toUpperCase() + data.emotion.slice(1);
                     }
