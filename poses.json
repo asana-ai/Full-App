@@ -4,139 +4,162 @@
       "name": "Bridge",
       "sanskrit_name": "Setu Bandhasana",
       "image": "images/bridge.png",
-      "difficulty": "Beginner"
+      "difficulty": "Beginner",
+      "model_path": "models\\bridge_classifier.pkl"
     },
     {
       "name": "Cat",
       "sanskrit_name": "Marjaryasana",
       "image": "images/cat.jpg",
-      "difficulty": "Beginner"
+      "difficulty": "Beginner",
+      "model_path": "models\\cat_classifier.pkl"
     },
     {
       "name": "Cow",
       "sanskrit_name": "Bitilasana",
       "image": "images/cow.png",
-      "difficulty": "Beginner"
+      "difficulty": "Beginner",
+      "model_path": "models\\cow_classifier.pkl"
     },
     {
       "name": "Child's Pose",
       "sanskrit_name": "Balasana",
       "image": "images/childs_pose.webp",
-      "difficulty": "Beginner"
+      "difficulty": "Beginner",
+      "model_path": "models\\tree_pose_classifier.pkl"
     },
     {
       "name": "Wheel",
       "sanskrit_name": "Urdhva Dhanurasana",
       "image": "images/wheel.webp",
-      "difficulty": "Advanced"
+      "difficulty": "Advanced",
+      "model_path": "models\\tree_pose_classifier.pkl"
     },
     {
       "name": "Downward-Facing Dog",
       "sanskrit_name": "Adho Mukha Svanasana",
       "image": "images/downward_facing_dog.webp",
-      "difficulty": "Beginner"
+      "difficulty": "Beginner",
+      "model_path": "models\\tree_pose_classifier.pkl"
     },
     {
       "name": "Upward-Facing Dog",
       "sanskrit_name": "Urdhva Mukha Svanasana",
       "image": "images/upward_facing_dog.jpg",
-      "difficulty": "Intermediate"
+      "difficulty": "Intermediate",
+      "model_path": "models\\tree_pose_classifier.pkl"
     },
     {
       "name": "Plank",
       "sanskrit_name": "Kumbhakasana",
       "image": "images/plank.png",
-      "difficulty": "Beginner"
+      "difficulty": "Beginner",
+      "model_path": "models\\tree_pose_classifier.pkl"
     },
     {
       "name": "Tree",
       "sanskrit_name": "Vrikshasana",
       "image": "images/tree.png",
-      "difficulty": "Beginner"
+      "difficulty": "Beginner",
+      "model_path": "models\\tree_pose_classifier.pkl"
     },
     {
       "name": "Warrior One",
       "sanskrit_name": "Virabhadrasana I",
       "image": "images/warrior_one.jpg",
-      "difficulty": "Beginner"
+      "difficulty": "Beginner",
+      "model_path": "models\\tree_pose_classifier.pkl"
     },
     {
       "name": "Warrior Two",
       "sanskrit_name": "Virabhadrasana II",
       "image": "images/warrior_two.jpg",
-      "difficulty": "Beginner"
+      "difficulty": "Beginner",
+      "model_path": "models\\tree_pose_classifier.pkl"
     },
     {
       "name": "Half-Moon",
       "sanskrit_name": "Ardha Chandrasana",
       "image": "images/half_moon.png",
-      "difficulty": "Intermediate"
+      "difficulty": "Intermediate",
+      "model_path": "models\\tree_pose_classifier.pkl"
     },
     {
       "name": "Extended Side Angle",
       "sanskrit_name": "Utthita Parsvakonasana",
       "image": "images/extended_side_angle.jpg",
-      "difficulty": "Intermediate"
+      "difficulty": "Intermediate",
+      "model_path": "models\\tree_pose_classifier.pkl"
     },
     {
       "name": "Boat",
       "sanskrit_name": "Navasana",
       "image": "images/boat.webp",
-      "difficulty": "Intermediate"
+      "difficulty": "Intermediate",
+      "model_path": "models\\tree_pose_classifier.pkl"
     },
     {
       "name": "Half-Boat",
       "sanskrit_name": "Ardha Navasana",
       "image": "images/half_boat.jpg",
-      "difficulty": "Beginner"
+      "difficulty": "Beginner",
+      "model_path": "models\\tree_pose_classifier.pkl"
     },
     {
       "name": "Bow",
       "sanskrit_name": "Dhanurasana",
       "image": "images/bow.jpg",
-      "difficulty": "Intermediate"
+      "difficulty": "Intermediate",
+      "model_path": "models\\tree_pose_classifier.pkl"
     },
     {
       "name": "Pigeon",
       "sanskrit_name": "Eka Pada Rajakapotasana",
       "image": "images/pigeon.jpg",
-      "difficulty": "Intermediate"
+      "difficulty": "Intermediate",
+      "model_path": "models\\tree_pose_classifier.pkl"
     },
     {
       "name": "Sphinx",
       "sanskrit_name": "Salamba Bhujangasana",
       "image": "images/sphinx.jpg",
-      "difficulty": "Beginner"
+      "difficulty": "Beginner",
+      "model_path": "models\\tree_pose_classifier.pkl"
     },
     {
       "name": "Seated Forward Bend",
       "sanskrit_name": "Paschimottanasana",
       "image": "images/seated_forward_bend.webp",
-      "difficulty": "Beginner"
+      "difficulty": "Beginner",
+      "model_path": "models\\tree_pose_classifier.pkl"
     },
     {
       "name": "Mountain Pose",
       "sanskrit_name": "Tadasana",
       "image": "images/mountain.png",
-      "difficulty": "Beginner"
+      "difficulty": "Beginner",
+      "model_path": "models\\tree_pose_classifier.pkl"
     },
     {
       "name": "Corpse Pose",
       "sanskrit_name": "Savasana",
       "image": "images/corpse.jpg",
-      "difficulty": "Beginner"
+      "difficulty": "Beginner",
+      "model_path": "models\\tree_pose_classifier.pkl"
     },
     {
       "name": "Butterfly Pose",
       "sanskrit_name": "Baddha Konasana",
       "image": "images/butterfly.webp",
-      "difficulty": "Beginner"
+      "difficulty": "Beginner",
+      "model_path": "models\\tree_pose_classifier.pkl"
     },
     {
       "name": "Legs Up the Wall",
       "sanskrit_name": "Viparita Karani",
       "image": "images/legs_up_the_wall.jpg",
-      "difficulty": "Beginner"
+      "difficulty": "Beginner",
+      "model_path": "models\\tree_pose_classifier.pkl"
     }
   ]
 }
