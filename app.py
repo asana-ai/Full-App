@@ -36,29 +36,102 @@ class VoiceFeedbackSystem:
         except pygame.error as e:
             print(f"Warning: Could not initialize audio system: {e}")
             self.audio_enabled = False
-        self.encouragement_messages = [
-            "You're doing great! Keep it up!",
-            "Excellent form! Stay steady!",
-            "Perfect! Hold that pose!",
-            "Great balance! Keep breathing!",
-            "Amazing! You've got this!"
-        ]
-        self.specific_corrections = {
-            'left_knee': "Try to keep your left leg straighter",
-            'right_knee': "Bend your right knee more and lift it higher",
-            'left_hip': "Straighten your left hip",
-            'right_hip': "Adjust your right hip position",
-            'left_shoulder': "Relax your left shoulder",
-            'right_shoulder': "Relax your right shoulder", 
-            'left_elbow': "Adjust your left arm position",
-            'right_elbow': "Adjust your right arm position"
+        
+        # Pose-specific feedback messages
+        self.pose_specific_feedback = {
+            'Tree': {
+                'encouragement': [
+                    "Great balance! Keep your tree pose steady!",
+                    "Perfect! Stay rooted like a tree!",
+                    "Excellent focus! Hold that balance!",
+                    "Beautiful tree pose! Keep breathing!"
+                ],
+                'corrections': {
+                    'left_knee': "Keep your standing leg straight",
+                    'right_knee': "Lift your bent knee higher",
+                    'left_hip': "Keep your standing hip straight",
+                    'right_hip': "Open your lifted hip more",
+                    'left_shoulder': "Relax your shoulders",
+                    'right_shoulder': "Keep your shoulders level"
+                },
+                'general': [
+                    "Focus on your balance point",
+                    "Press your foot firmly into your leg",
+                    "Find a spot to focus on ahead"
+                ]
+            },
+            'Bridge': {
+                'encouragement': [
+                    "Strong bridge! Keep lifting those hips!",
+                    "Perfect! Feel the strength in your legs!",
+                    "Great bridge pose! Keep breathing deeply!",
+                    "Excellent! Your spine is getting a wonderful stretch!"
+                ],
+                'corrections': {
+                    'left_knee': "Keep your left knee bent at 90 degrees",
+                    'right_knee': "Keep your right knee bent at 90 degrees", 
+                    'left_hip': "Lift your hips higher",
+                    'right_hip': "Push your hips up evenly",
+                    'left_shoulder': "Keep your arms straight on the ground",
+                    'right_shoulder': "Press your arms down for support"
+                },
+                'general': [
+                    "Squeeze your glutes and lift higher",
+                    "Keep your knees parallel",
+                    "Press your feet firmly into the ground"
+                ]
+            },
+            'Cat': {
+                'encouragement': [
+                    "Perfect cat stretch! Feel that spine curve!",
+                    "Great! Round your back like an angry cat!",
+                    "Excellent cat pose! Keep breathing!",
+                    "Beautiful spine movement! Hold that curve!"
+                ],
+                'corrections': {
+                    'left_knee': "Keep your knee under your hip",
+                    'right_knee': "Keep your knee under your hip",
+                    'left_hip': "Keep your hips level",
+                    'right_hip': "Keep your hips level", 
+                    'left_shoulder': "Keep your hand under your shoulder",
+                    'right_shoulder': "Keep your hand under your shoulder"
+                },
+                'general': [
+                    "Round your spine more toward the ceiling",
+                    "Tuck your chin to your chest",
+                    "Really arch your back upward"
+                ]
+            },
+            'Cow': {
+                'encouragement': [
+                    "Perfect cow stretch! Feel that back arch!",
+                    "Great! Lift your heart and tailbone!",
+                    "Excellent cow pose! Keep breathing!",
+                    "Beautiful counter-stretch! Hold that arch!"
+                ],
+                'corrections': {
+                    'left_knee': "Keep your knee under your hip",
+                    'right_knee': "Keep your knee under your hip",
+                    'left_hip': "Keep your hips level",
+                    'right_hip': "Keep your hips level",
+                    'left_shoulder': "Keep your hand under your shoulder", 
+                    'right_shoulder': "Keep your hand under your shoulder"
+                },
+                'general': [
+                    "Arch your back and look up gently",
+                    "Lift your chest and tailbone",
+                    "Create a gentle curve in your spine"
+                ]
+            }
         }
+        
         self.general_corrections = [
             "Let's adjust your pose and try again",
-            "Focus on your balance and try again",
+            "Focus on your alignment and try again", 
             "Take a breath and reset your position",
             "Almost there! Make small adjustments"
         ]
+        
         self.return_messages = [
             "Great! You're back in position!",
             "Perfect! Let's continue!",
@@ -94,27 +167,32 @@ class VoiceFeedbackSystem:
         current_time = time.time()
         return current_time - self.last_feedback_time > self.feedback_cooldown
 
-    def give_feedback(self, is_correct, incorrect_angles=None):
+    def give_feedback(self, is_correct, pose_name, incorrect_angles=None):
         if not self.should_give_feedback():
             return
         current_time = time.time()
         message = None
+        
+        # Get pose-specific feedback
+        pose_feedback = self.pose_specific_feedback.get(pose_name, self.pose_specific_feedback['Tree'])
+        
         if is_correct:
             if self.last_pose_state != 'correct':
                 if self.last_pose_state == 'incorrect':
                     message = random.choice(self.return_messages)
                 elif self.last_pose_state is None:
-                    message = "Great! You're in the correct pose!"
+                    message = f"Great! You're in the correct {pose_name} pose!"
                 self.correct_pose_start = current_time
             elif self.correct_pose_start and (current_time - self.correct_pose_start) > 10 and (current_time - self.correct_pose_start) % 10 < 3:
-                message = random.choice(self.encouragement_messages)
+                message = random.choice(pose_feedback['encouragement'])
         else:
             if self.last_pose_state == 'correct' or self.last_pose_state is None:
                 if incorrect_angles and len(incorrect_angles) <= 2:
                     angle_name = list(incorrect_angles.keys())[0]
-                    message = self.specific_corrections.get(angle_name, random.choice(self.general_corrections))
+                    message = pose_feedback['corrections'].get(angle_name, random.choice(pose_feedback['general']))
                 else:
-                    message = random.choice(self.general_corrections)
+                    message = random.choice(pose_feedback['general'])
+        
         if message:
             self.generate_and_play_speech(message)
             self.last_feedback_time = current_time
@@ -135,42 +213,128 @@ poses_lookup = {pose['name']: pose for pose in all_poses_data}
 model_cache = {}
 
 def load_pose_model(pose_name):
-    """Load the appropriate model for the given pose name"""
-    pose_data = poses_lookup.get(pose_name)
-    if not pose_data:
-        # Fallback to tree pose model if pose not found
-        model_path = 'tree_pose_classifier.pkl'
-    else:
-        model_path = pose_data.get('model_path', 'tree_pose_classifier.pkl')
+    """Load the appropriate model for the given pose name from models folder"""
+    # Convert pose name to filename format
+    model_filename = f"{pose_name.lower().replace(' ', '_').replace("'", '')}_classifier.pkl"
+    model_path = os.path.join('models', model_filename)
     
     # Check if model is already cached
     if model_path not in model_cache:
         try:
-            model_cache[model_path] = joblib.load(model_path)
-            print(f"Loaded model: {model_path}")
+            if os.path.exists(model_path):
+                model_cache[model_path] = joblib.load(model_path)
+                print(f"Loaded model: {model_path}")
+            else:
+                # Fallback to tree pose model
+                fallback_path = os.path.join('models', 'tree_pose_classifier.pkl')
+                model_cache[model_path] = joblib.load(fallback_path)
+                print(f"Model {model_path} not found. Using tree pose model as fallback.")
         except Exception as e:
             print(f"Error loading model {model_path}: {e}")
-            # Fallback to tree pose model
-            if model_path != 'tree_pose_classifier.pkl':
-                model_cache[model_path] = joblib.load('tree_pose_classifier.pkl')
-                print(f"Fallback: Using tree pose model for {pose_name}")
+            # Final fallback to tree pose model
+            fallback_path = os.path.join('models', 'tree_pose_classifier.pkl')
+            model_cache[model_path] = joblib.load(fallback_path)
+            print(f"Fallback: Using tree pose model for {pose_name}")
     
     return model_cache[model_path]
 
 def get_pose_thresholds(pose_name):
-    """Get angle thresholds for the given pose (currently using tree pose thresholds for all)"""
-    # For now, use tree pose thresholds for all poses
-    # In the future, you can customize thresholds per pose
-    return {
-        'left_knee': (170, 185),
-        'right_knee': (40, 60),
-        'left_hip': (167, 185),
-        'right_hip': (101, 123),
-        'left_shoulder': (149, 185),
-        'right_shoulder': (153, 185),
-        'left_elbow': (125, 164),
-        'right_elbow': (126, 169),
+    """Get angle thresholds for specific poses based on CSV analysis"""
+    pose_thresholds = {
+        'Tree': {
+            'left_knee': (175, 185),    # Standing leg very straight
+            'right_knee': (45, 55),     # Bent leg at about 50 degrees
+            'left_hip': (175, 185),     # Standing hip straight  
+            'right_hip': (105, 115),    # Bent leg hip angle
+            'left_shoulder': (165, 185), # Shoulders level
+            'right_shoulder': (165, 185),
+            'left_elbow': (155, 170),   # Arms in prayer or at sides
+            'right_elbow': (155, 170),
+        },
+        'Bridge': {
+            'left_knee': (75, 85),      # Knees bent at ~80 degrees
+            'right_knee': (75, 85),     
+            'left_hip': (165, 180),     # Hips lifted high
+            'right_hip': (165, 180),    
+            'left_shoulder': (165, 185), # Arms on ground
+            'right_shoulder': (165, 185),
+            'left_elbow': (165, 185),   # Arms straight
+            'right_elbow': (165, 185),
+        },
+        'Cat': {
+            'left_knee': (85, 95),      # Knees under hips
+            'right_knee': (85, 95),
+            'left_hip': (95, 105),      # Hips over knees
+            'right_hip': (95, 105),
+            'left_shoulder': (160, 175), # Hands under shoulders
+            'right_shoulder': (160, 175),
+            'left_elbow': (170, 185),   # Arms straight down
+            'right_elbow': (170, 185),
+        },
+        'Cow': {
+            'left_knee': (85, 95),      # Same base as cat
+            'right_knee': (85, 95),
+            'left_hip': (95, 105),      # Hips over knees
+            'right_hip': (95, 105), 
+            'left_shoulder': (160, 175), # Hands under shoulders
+            'right_shoulder': (160, 175),
+            'left_elbow': (165, 185),   # Arms supporting
+            'right_elbow': (165, 185),
+        },
+        'Child\'s Pose': {
+            'left_knee': (30, 60),      # Knees deeply bent
+            'right_knee': (30, 60),
+            'left_hip': (30, 60),       # Sitting back on heels
+            'right_hip': (30, 60),
+            'left_shoulder': (140, 185), # Arms extended forward
+            'right_shoulder': (140, 185),
+            'left_elbow': (160, 185),
+            'right_elbow': (160, 185),
+        },
+        'Wheel': {
+            'left_knee': (140, 170),    # Legs somewhat straight
+            'right_knee': (140, 170),
+            'left_hip': (140, 180),     # Hips very extended
+            'right_hip': (140, 180),
+            'left_shoulder': (100, 140), # Arms overhead
+            'right_shoulder': (100, 140),
+            'left_elbow': (140, 185),
+            'right_elbow': (140, 185),
+        }
     }
+    
+    # Return pose-specific thresholds or default to Tree pose
+    return pose_thresholds.get(pose_name, pose_thresholds['Tree'])
+
+# --- Update poses.json with correct model paths ---
+def update_poses_json_with_model_paths():
+    """Update poses.json to use correct model paths from models folder"""
+    try:
+        with open('poses.json', 'r') as f:
+            data = json.load(f)
+        
+        for pose in data['poses']:
+            pose_name = pose['name']
+            model_filename = f"{pose_name.lower().replace(' ', '_').replace("'", '')}_classifier.pkl"
+            model_path = os.path.join('models', model_filename)
+            
+            # Check if specific model exists, otherwise use tree pose
+            if os.path.exists(model_path):
+                pose['model_path'] = model_path
+            else:
+                pose['model_path'] = os.path.join('models', 'tree_pose_classifier.pkl')
+        
+        # Save updated JSON
+        with open('poses.json', 'w') as f:
+            json.dump(data, f, indent=2)
+            
+        print("Updated poses.json with correct model paths")
+        
+    except Exception as e:
+        print(f"Error updating poses.json: {e}")
+
+# Call this on startup to ensure correct model paths
+update_poses_json_with_model_paths()
 
 # --- Emotion-based Adaptive Logic ---
 def get_adaptive_pose_recommendation(current_emotion, current_pose_name, pose_sequence, current_index):
@@ -301,7 +465,7 @@ def start_session():
     poses = request.json.get('poses', [])
     # Fallback if poses is empty or not a list of dicts
     if not poses or not isinstance(poses, list) or not isinstance(poses[0], dict):
-        poses = [{'name': 'tree', 'image': 'images/test.jpg'}]
+        poses = [{'name': 'Tree', 'image': 'images/tree.png'}]
     session['pose_sequence'] = poses
     session['current_pose_index'] = 0
     return jsonify({'redirect': url_for('pose_accuracy')})
@@ -446,7 +610,7 @@ def pose_accuracy():
     current_index = session.get('current_pose_index', 0)
     # Fallback if pose_sequence is empty or index out of range
     if not pose_sequence or current_index >= len(pose_sequence):
-        pose = {'name': 'tree', 'image': 'images/test.jpg'}
+        pose = {'name': 'Tree', 'image': 'images/tree.png'}
     else:
         pose = pose_sequence[current_index]
     pose_name = pose['name']
@@ -499,7 +663,8 @@ def predict():
             cv2.line(frame, b, c, color, 4)
             cv2.putText(frame, f"{int(angle)}", b, cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-        voice_feedback.give_feedback(correct, incorrect_angles if not correct else None)
+        # Pass pose name to voice feedback
+        voice_feedback.give_feedback(correct, current_pose_name, incorrect_angles if not correct else None)
 
     # Detect emotion ONLY if detect_emotion is True
     if detect_emotion:
@@ -517,5 +682,6 @@ def predict():
         'correct': correct,
         'emotion': emotion
     })
+
 if __name__ == '__main__':
     app.run(debug=True)
