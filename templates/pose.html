@@ -106,12 +106,15 @@
         <img id="webcam" width="400" height="600"/>
         <img id="reference" src="{{ pose_image }}" width="400" height="600"/>
     </div>
-    <script>        let timer = 0;  // Start from 0
+    <script>        
+        let timer = 0;  // Start from 0
         let interval = null;
         let running = false;
         let stream = null;
         let video = document.createElement('video');
         let currentEmotion = 'neutral'; // Track current emotion
+        let scoringSessionId = null; // Track scoring session
+        let currentPoseName = '{{ pose_name }}'; // Get pose name from template
         video.setAttribute('autoplay', '');
         video.setAttribute('playsinline', '');
 
@@ -119,7 +122,62 @@
             let min = String(Math.floor(timer / 60)).padStart(2, '0');
             let sec = String(timer % 60).padStart(2, '0');
             document.getElementById('timer').innerText = `${min}:${sec}`;
-        }        function startTimer() {
+        }
+        
+        function startPoseTracking() {
+            fetch('/start_pose_tracking', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    pose_name: currentPoseName
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    scoringSessionId = data.session_id;
+                    console.log('Started pose tracking:', scoringSessionId);
+                }
+            })
+            .catch(error => console.error('Error starting pose tracking:', error));
+        }
+        
+        function endPoseAndShowScore() {
+            if (!scoringSessionId) {
+                console.log('No active scoring session');
+                return;
+            }
+            
+            fetch('/end_pose_tracking', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Store score data in session storage to pass to score page
+                    sessionStorage.setItem('scoreData', JSON.stringify(data.score_data));
+                    
+                    // Navigate to score page
+                    window.location.href = '/score';
+                } else {
+                    console.error('Error getting score:', data.error);
+                    // Continue to next pose even if scoring fails
+                    goToNextPose();
+                }
+            })
+            .catch(error => {
+                console.error('Error ending pose tracking:', error);
+                // Continue to next pose even if scoring fails
+                goToNextPose();
+            });
+        }
+
+        function startTimer() {
             if (!interval) {
                 interval = setInterval(() => {
                     if (running) {  // If pose is correct
@@ -128,7 +186,12 @@
                         
                         // Check if 60 seconds completed
                         if (timer >= 60) {
-                            goToNextPose();
+                            // Stop timer and show score
+                            clearInterval(interval);
+                            interval = null;
+                            
+                            // End pose tracking and show score
+                            endPoseAndShowScore();
                         }
                     }
                 }, 1000);
@@ -172,6 +235,9 @@
                             window.location.href = '/';
                         }, 8000);
                     } else {
+                        // Store next pose info for after scoring
+                        sessionStorage.setItem('nextPoseData', JSON.stringify(data));
+                        
                         // Start countdown and announcement using backend TTS
                         let feedbackText = "Listen for personalized recommendation...";
                         if (data.recommendation_type === 'easier') {
@@ -199,9 +265,15 @@
                             document.getElementById('reference').src = data.pose_image;
                             document.getElementById('feedback').innerText = "Hold the pose correctly to start timer!";
                             
+                            // Update current pose name for new scoring session
+                            currentPoseName = data.pose_name;
+                            
                             // Reset timer
                             timer = 0;
                             updateTimer();
+                            
+                            // Start new pose tracking session
+                            startPoseTracking();
                             
                             // Start timer
                             startTimer();
@@ -262,7 +334,45 @@
 
         setInterval(sendFrame, 100);
         updateTimer();
-        startTimer();
+        
+        // Check if continuing from score page
+        const continueFromScoreString = sessionStorage.getItem('continueFromScore');
+        if (continueFromScoreString) {
+            try {
+                const nextPoseData = JSON.parse(continueFromScoreString);
+                sessionStorage.removeItem('continueFromScore');
+                
+                // Update UI with next pose data
+                document.querySelector('h1').innerText = nextPoseData.pose_name;
+                document.getElementById('reference').src = nextPoseData.pose_image;
+                currentPoseName = nextPoseData.pose_name;
+                
+                // Announce the next pose
+                fetch('/announce_next_pose', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        pose_name: nextPoseData.pose_name,
+                        emotion: nextPoseData.emotion,
+                        recommendation_type: nextPoseData.recommendation_type
+                    })
+                });
+                
+                // Start scoring and timer after announcement
+                setTimeout(() => {
+                    startPoseTracking();
+                    startTimer();
+                }, 8000);
+            } catch (error) {
+                console.error('Error handling continue from score:', error);
+                startPoseTracking();
+                startTimer();
+            }
+        } else {
+            // Normal initialization
+            startPoseTracking();
+            startTimer();
+        }
     </script>
 </body>
 </html>
