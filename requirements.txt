@@ -13,3 +13,4 @@ pyaudio
 tf-keras
 scikit-learn
 fer
+moviepy == 1.0.3
