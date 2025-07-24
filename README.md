@@ -9,7 +9,9 @@ python app.py
 
 Add emotion detection during pose
 
-Add all the poses (only tree pose works for now)
+Add all the poses
 
 Add model path in poses.json
+
+Add supabase backend to store all the pose data
 
