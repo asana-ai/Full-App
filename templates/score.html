@@ -295,24 +295,32 @@
         // This will be populated with actual score data
         let scoreData = null;
         
+        // Get score data from sessionStorage when page loads
+        window.onload = function() {
+            const scoreData = sessionStorage.getItem('scoreData');
+            if (scoreData) {
+                displayScore(JSON.parse(scoreData));
+                // Clear the data after displaying
+                sessionStorage.removeItem('scoreData');
+            } else {
+                // Fallback data if no score available
+                displayScore(exampleScoreData);
+            }
+        };
+
         function displayScore(data) {
             scoreData = data;
             
             // Update header
             document.getElementById('poseName').textContent = data.pose_name;
             
-            // Update final score
-            const finalScore = document.getElementById('finalScore');
-            const grade = document.getElementById('grade');
-            const performanceLevel = document.getElementById('performanceLevel');
-            const scoreCircle = document.getElementById('scoreCircle');
-            
             // Animate score counting up
-            animateNumber(finalScore, 0, data.total_score, 2000);
-            grade.textContent = data.grade;
-            performanceLevel.textContent = data.performance_level;
+            animateNumber(document.getElementById('finalScore'), 0, data.total_score, 2000);
+            document.getElementById('grade').textContent = data.grade;
+            document.getElementById('performanceLevel').textContent = data.performance_level;
             
             // Set score circle color based on grade
+            const scoreCircle = document.getElementById('scoreCircle');
             if (data.grade.startsWith('A')) {
                 scoreCircle.className = 'score-circle grade-a';
             } else if (data.grade.startsWith('B')) {
@@ -321,14 +329,42 @@
                 scoreCircle.className = 'score-circle grade-c';
             }
             
-            // Update session stats
+            // Update displays
             updateSessionStats(data.session_stats);
-            
-            // Update breakdown
             updateBreakdown(data.breakdown);
-            
-            // Update recommendations
             updateRecommendations(data.recommendations);
+            
+            // Get and display routine context
+            fetch('/get_progress')
+                .then(response => response.json())
+                .then(progressData => {
+                    updateRoutineContext(progressData.progress);
+                })
+                .catch(error => console.error('Error getting progress:', error));
+        }
+
+        function updateRoutineContext(progress) {
+            const routineStatus = document.getElementById('routineStatus');
+            
+            if (progress.status === 'detour') {
+                routineStatus.innerHTML = `
+                    <div style="color: #FF9800; font-weight: bold;">
+                        🔄 Emotion-based pose completed (${progress.detour_progress})
+                    </div>
+                    <div style="margin-top: 0.5rem; opacity: 0.9;">
+                        Next: ${progress.detour_index + 1 < progress.emotion_detour_poses?.length ? 'Continue detour' : 'Return to main routine'}
+                    </div>
+                `;
+            } else {
+                routineStatus.innerHTML = `
+                    <div style="color: #4CAF50; font-weight: bold;">
+                        📋 Routine Progress: ${progress.completed_poses}/${progress.total_poses} completed
+                    </div>
+                    <div style="margin-top: 0.5rem; opacity: 0.9;">
+                        ${progress.routine_complete ? 'Routine Complete!' : `Next: Pose ${progress.current_pose_number} of ${progress.total_poses}`}
+                    </div>
+                `;
+            }
         }
         
         function animateNumber(element, start, end, duration) {
@@ -435,22 +471,27 @@
         }
         
         function nextPose() {
-            // Move to next pose in sequence
+            // Get stored emotion from sessionStorage
+            const emotion = sessionStorage.getItem('currentEmotion') || 'neutral';
+            sessionStorage.removeItem('currentEmotion');
+            
             fetch('/next_pose', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ emotion: 'neutral' })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ emotion: emotion })
             })
             .then(response => response.json())
             .then(data => {
                 if (data.workout_complete) {
-                    alert('Workout complete! Great job!');
-                    window.location.href = '/dashboard';
+                    alert(data.message);
+                    window.location.href = '/';
                 } else {
                     window.location.href = '/pose';
                 }
+            })
+            .catch(error => {
+                console.error('Error getting next pose:', error);
+                window.location.href = '/pose';
             });
         }
         

@@ -55,8 +55,8 @@
             margin-bottom: 40px;
         }
         #webcam, #reference {
-            width: 900px;
-            height: 1000px;
+            width: 640px;
+            height: 480px;
             object-fit: cover;
             border-radius: 18px;
             box-shadow: 0 0 30px #222a, 0 0 10px #7fffd4aa;
@@ -64,6 +64,9 @@
             border: 4px solid #333;
             transition: border 0.3s, box-shadow 0.3s;
             display: block;
+            image-rendering: auto;
+            image-rendering: crisp-edges;
+            image-rendering: pixelated;
         }
         #webcam.correct {
             border: 4px solid #00e676;
@@ -90,31 +93,94 @@
             z-index: 999;
         }
 
+        .progress-container {
+            background: rgba(255,255,255,0.1);
+            padding: 1rem;
+            border-radius: 10px;
+            margin: 1rem 0;
+            text-align: center;
+            color: white;
+        }
+        .routine-progress {
+            margin-bottom: 0.5rem;
+        }
+        .detour-indicator, .routine-indicator {
+            padding: 0.5rem;
+            border-radius: 5px;
+            margin-bottom: 0.5rem;
+        }
+        .detour-indicator {
+            background: #FF9800;
+        }
+        .routine-indicator {
+            background: #4CAF50;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 4px;
+            margin-top: 0.5rem;
+        }
+        .progress-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
         @media (max-width: 900px) {
-            #container { flex-direction: column; align-items: center; }
-            #webcam, #reference { width: 90vw; height: 60vw; max-width: 400px; max-height: 600px; }
+            #container { 
+                flex-direction: column; 
+                align-items: center; 
+            }
+            #webcam, #reference { 
+                width: 90vw; 
+                height: 60vw; 
+                max-width: 480px; 
+                max-height: 360px; 
+            }
         }
     </style>
 </head>
 <body>
-    <h1>{{ pose_name }}</h1>
+    <h1 id="pose-name">{{ pose_name }}</h1>
     <div id="timer">00:00</div>
     <div id="feedback"></div>
     <div id="emotion-display">Emotion: <span id="emotion-text">-</span></div>
 
     <div id="container">
-        <img id="webcam" width="400" height="600"/>
-        <img id="reference" src="{{ pose_image }}" width="400" height="600"/>
+        <img id="webcam" width="640" height="480"/>
+        <img id="reference" src="{{ pose_image }}" width="640" height="480" 
+             onerror="this.onerror=null; this.src='/static/images/tree.png';" 
+             alt="Pose reference image"/>
     </div>
+
+    <!-- Add progress indicator after the pose info section -->
+    <div class="progress-container">
+        <div class="routine-progress">
+            <div class="routine-indicator">
+                📋 Loading routine...
+            </div>
+        </div>
+        
+        <!-- Progress bar -->
+        <div class="progress-bar">
+            <div class="progress-fill"></div>
+        </div>
+    </div>
+
     <script>        
-        let timer = 0;  // Start from 0
+        // Global variables - declared once
+        let timer = 0;
         let interval = null;
         let running = false;
         let stream = null;
         let video = document.createElement('video');
-        let currentEmotion = 'neutral'; // Track current emotion
-        let scoringSessionId = null; // Track scoring session
-        let currentPoseName = '{{ pose_name }}'; // Get pose name from template
+        let currentEmotion = 'neutral';
+        let scoringSessionId = null;
+        let currentPoseName = '{{ pose_name }}';
+        let isProcessingScore = false;
+        
         video.setAttribute('autoplay', '');
         video.setAttribute('playsinline', '');
 
@@ -161,6 +227,7 @@
                 if (data.success) {
                     // Store score data in session storage to pass to score page
                     sessionStorage.setItem('scoreData', JSON.stringify(data.score_data));
+                    sessionStorage.setItem('currentEmotion', currentEmotion);
                     
                     // Navigate to score page
                     window.location.href = '/score';
@@ -180,8 +247,8 @@
         function startTimer() {
             if (!interval) {
                 interval = setInterval(() => {
-                    if (running) {  // If pose is correct
-                        timer++;    // Increment timer
+                    if (running) {
+                        timer++;
                         updateTimer();
                         
                         // Check if 60 seconds completed
@@ -196,7 +263,9 @@
                     }
                 }, 1000);
             }
-        }        function goToNextPose() {
+        }
+
+        function goToNextPose() {
             // Stop current timer
             if (interval) {
                 clearInterval(interval);
@@ -212,128 +281,211 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ emotion: currentEmotion })
             })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.workout_complete) {
-                        // Workout finished
-                        document.getElementById('feedback').innerText = data.message;
-                        document.getElementById('timer').innerText = "DONE!";
-                        
-                        // Use backend TTS for completion message
-                        fetch('/announce_next_pose', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ 
-                                pose_name: 'workout complete',
-                                emotion: currentEmotion,
-                                recommendation_type: 'complete'
-                            })
-                        });
-                        
-                        // Redirect to home after a few seconds
-                        setTimeout(() => {
-                            window.location.href = '/';
-                        }, 8000);
-                    } else {
-                        // Store next pose info for after scoring
-                        sessionStorage.setItem('nextPoseData', JSON.stringify(data));
-                        
-                        // Start countdown and announcement using backend TTS
-                        let feedbackText = "Listen for personalized recommendation...";
-                        if (data.recommendation_type === 'easier') {
-                            feedbackText = "Adapting to easier pose based on your emotion...";
-                        } else if (data.recommendation_type === 'more challenging') {
-                            feedbackText = "Suggesting more challenging pose - you're doing great!";
-                        }
-                        document.getElementById('feedback').innerText = feedbackText;
-                        
-                        // Call backend TTS with emotion-based countdown
-                        fetch('/announce_next_pose', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ 
-                                pose_name: data.pose_name,
-                                emotion: data.emotion,
-                                recommendation_type: data.recommendation_type
-                            })
-                        });
-                        
-                        // Update UI after announcement delay (about 8 seconds for announcement + countdown)
-                        setTimeout(() => {
-                            // Update to next pose
-                            document.querySelector('h1').innerText = data.pose_name;
-                            document.getElementById('reference').src = data.pose_image;
-                            document.getElementById('feedback').innerText = "Hold the pose correctly to start timer!";
-                            
-                            // Update current pose name for new scoring session
-                            currentPoseName = data.pose_name;
-                            
-                            // Reset timer
-                            timer = 0;
-                            updateTimer();
-                            
-                            // Start new pose tracking session
-                            startPoseTracking();
-                            
-                            // Start timer
-                            startTimer();
-                        }, 8000); // Wait for TTS announcement to complete
+            .then(response => response.json())
+            .then(data => {
+                if (data.workout_complete) {
+                    // Workout finished
+                    document.getElementById('feedback').innerText = data.message;
+                    document.getElementById('timer').innerText = "DONE!";
+                    
+                    // Use backend TTS for completion message
+                    fetch('/announce_next_pose', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            pose_name: 'workout complete',
+                            emotion: currentEmotion,
+                            recommendation_type: 'complete'
+                        })
+                    });
+                    
+                    // Redirect to home after a few seconds
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 8000);
+                } else {
+                    // Update progress display
+                    updateProgressDisplay(data.progress);
+                    
+                    // Start countdown and announcement using backend TTS
+                    let feedbackText = "Listen for personalized recommendation...";
+                    if (data.recommendation_type === 'easier') {
+                        feedbackText = "Adapting to easier pose based on your emotion...";
+                    } else if (data.recommendation_type === 'more challenging') {
+                        feedbackText = "Suggesting more challenging pose - you're doing great!";
                     }
-                })
-                .catch(error => {
-                    console.error('Error advancing to next pose:', error);
-                    document.getElementById('feedback').innerText = "Error advancing to next pose";
-                });
+                    document.getElementById('feedback').innerText = feedbackText;
+                    
+                    // Call backend TTS with emotion-based countdown
+                    fetch('/announce_next_pose', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            pose_name: data.pose_name,
+                            emotion: data.emotion,
+                            recommendation_type: data.recommendation_type
+                        })
+                    });
+                    
+                    // Update UI after announcement delay
+                    setTimeout(() => {
+                        // Update to next pose
+                        document.getElementById('pose-name').innerText = data.pose_name;
+                        
+                        // Update reference image with error handling
+                        const referenceImg = document.getElementById('reference');
+                        referenceImg.onerror = function() {
+                            this.onerror = null;
+                            this.src = '/static/images/tree.png';
+                        };
+                        referenceImg.src = data.pose_image;
+                        
+                        document.getElementById('feedback').innerText = "Hold the pose correctly to start timer!";
+                        
+                        // Update current pose name for new scoring session
+                        currentPoseName = data.pose_name;
+                        
+                        // Reset timer
+                        timer = 0;
+                        updateTimer();
+                        
+                        // Start new pose tracking session
+                        startPoseTracking();
+                        
+                        // Start timer
+                        startTimer();
+                    }, 8000);
+                }
+            })
+            .catch(error => {
+                console.error('Error advancing to next pose:', error);
+                document.getElementById('feedback').innerText = "Error advancing to next pose";
+            });
         }
 
-        // Webcam setup
-        navigator.mediaDevices.getUserMedia({ video: true }).then(s => {
+        function updateProgressDisplay(progressData) {
+            if (!progressData) return;
+            
+            const progressContainer = document.querySelector('.routine-progress');
+            const progressFill = document.querySelector('.progress-fill');
+            
+            if (progressData.status === 'detour') {
+                progressContainer.innerHTML = `
+                    <div class="detour-indicator">
+                        🔄 Emotion-based detour: ${progressData.detour_progress}
+                    </div>
+                    <div>Will return to main routine after this pose</div>
+                `;
+                progressFill.style.width = '100%';
+                progressFill.style.background = '#FF9800';
+            } else {
+                progressContainer.innerHTML = `
+                    <div class="routine-indicator">
+                        📋 Main Routine: Pose ${progressData.current_pose_number} of ${progressData.total_poses}
+                    </div>
+                `;
+                const progressPercent = (progressData.completed_poses / progressData.total_poses) * 100;
+                progressFill.style.width = progressPercent + '%';
+                progressFill.style.background = '#4CAF50';
+            }
+        }
+
+        // Webcam setup with optimized settings
+        navigator.mediaDevices.getUserMedia({ 
+            video: { 
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+                frameRate: { ideal: 30, min: 15 }
+            } 
+        }).then(s => {
             stream = s;
             video.srcObject = stream;
+            video.play();
+        }).catch(err => {
+            console.error('Error accessing webcam:', err);
+            // Fallback to basic video constraints
+            navigator.mediaDevices.getUserMedia({ video: true }).then(s => {
+                stream = s;
+                video.srcObject = stream;
+                video.play();
+            });
         });
 
-        // Send frames to backend for pose checking and display annotated frame
-        function sendFrame() {
-    if (video.readyState === video.HAVE_ENOUGH_DATA) {
-        let canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        let ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob(blob => {
-            let formData = new FormData();
-            formData.append('frame', blob, 'frame.jpg');
-
-            // 🔁 Add this: include detect_emotion flag
-            const secondsLeft = 60 - (timer % 60);
-            const detectEmotion = secondsLeft <= 10;
-            formData.append('detect_emotion', detectEmotion.toString());
-
-            fetch('/predict', { method: 'POST', body: formData })
-                .then(response => response.json())
-                .then(data => {
-                    running = data.correct;
-                    document.getElementById('feedback').innerText = running ?
-                        `Correct Pose! Time: ${Math.floor(timer / 60)}:${(timer % 60).toString().padStart(2, '0')}` :
-                        "Incorrect Pose! Timer paused.";
-                    document.getElementById('webcam').src = 'data:image/jpeg;base64,' + data.frame;
-                    document.getElementById('webcam').className = running ? 'correct' : 'incorrect';                    // ✅ Update emotion
-                    if (data.emotion && data.emotion !== 'undetected') {
-                        currentEmotion = data.emotion; // Store current emotion
-                        document.getElementById('emotion-text').textContent =
-                            data.emotion.charAt(0).toUpperCase() + data.emotion.slice(1);
-                    }
-                });
-        }, 'image/jpeg');
-    }
-}
-
-        // Create emotion display
-        const emotionDisplay = document.createElement('div');       
+        // Optimized frame processing with better performance
+        let lastFrameTime = 0;
+        let isProcessingFrame = false;
+        let frameSkipCounter = 0;
         
+        function sendFrame() {
+            if (video.readyState === video.HAVE_ENOUGH_DATA && !isProcessingFrame) {
+                // Adaptive frame rate: send frames more frequently when pose is correct
+                const currentTime = Date.now();
+                const frameInterval = running ? 100 : 150; // 10 FPS when correct, 6.7 FPS when incorrect
+                
+                if (currentTime - lastFrameTime < frameInterval) {
+                    return;
+                }
+                
+                // Skip emotion detection on most frames to improve performance
+                frameSkipCounter++;
+                const shouldDetectEmotion = (frameSkipCounter % 10 === 0) && (60 - timer <= 10);
+                
+                lastFrameTime = currentTime;
+                isProcessingFrame = true;
+                
+                let canvas = document.createElement('canvas');
+                // Reduce canvas size for better performance while maintaining quality
+                const scaleFactor = 0.7;
+                canvas.width = video.videoWidth * scaleFactor;
+                canvas.height = video.videoHeight * scaleFactor;
+                let ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                canvas.toBlob(blob => {
+                    let formData = new FormData();
+                    formData.append('frame', blob, 'frame.jpg');
+                    formData.append('detect_emotion', shouldDetectEmotion.toString());
 
-        setInterval(sendFrame, 100);
+                    fetch('/predict', { method: 'POST', body: formData })
+                        .then(response => response.json())
+                        .then(data => {
+                            running = data.correct;
+                            document.getElementById('feedback').innerText = running ?
+                                `Correct Pose! Time: ${Math.floor(timer / 60)}:${(timer % 60).toString().padStart(2, '0')}` :
+                                "Incorrect Pose! Timer paused.";
+                            document.getElementById('webcam').src = 'data:image/jpeg;base64,' + data.frame;
+                            document.getElementById('webcam').className = running ? 'correct' : 'incorrect';
+                            
+                            // Update emotion only when detected
+                            if (data.emotion && data.emotion !== 'undetected' && data.emotion !== 'neutral') {
+                                currentEmotion = data.emotion;
+                                document.getElementById('emotion-text').textContent =
+                                    data.emotion.charAt(0).toUpperCase() + data.emotion.slice(1);
+                            }
+                            
+                            isProcessingFrame = false;
+                        })
+                        .catch(error => {
+                            console.error('Error:', error);
+                            isProcessingFrame = false;
+                        });
+                }, 'image/jpeg', 0.8); // Slightly reduced quality for better performance
+            }
+        }
+
+        // Initialize everything with optimized performance
+        setInterval(sendFrame, 80); // Increased to ~12.5 FPS for smoother video
         updateTimer();
+        
+        // Load initial progress data
+        fetch('/get_progress')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateProgressDisplay(data.progress);
+                }
+            })
+            .catch(error => console.error('Error loading progress:', error));
         
         // Check if continuing from score page
         const continueFromScoreString = sessionStorage.getItem('continueFromScore');
@@ -343,8 +495,16 @@
                 sessionStorage.removeItem('continueFromScore');
                 
                 // Update UI with next pose data
-                document.querySelector('h1').innerText = nextPoseData.pose_name;
-                document.getElementById('reference').src = nextPoseData.pose_image;
+                document.getElementById('pose-name').innerText = nextPoseData.pose_name;
+                
+                // Update reference image with error handling
+                const referenceImg = document.getElementById('reference');
+                referenceImg.onerror = function() {
+                    this.onerror = null;
+                    this.src = '/static/images/tree.png';
+                };
+                referenceImg.src = nextPoseData.pose_image;
+                
                 currentPoseName = nextPoseData.pose_name;
                 
                 // Announce the next pose

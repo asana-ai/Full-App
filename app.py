@@ -20,6 +20,11 @@ from datetime import datetime, timedelta
 from pose import record_audio, transcribe_audio, identify_pain_area
 from emotion_detector import detect_emotion_from_frame
 
+# Import modular components
+from modules.scoring import PoseScorer
+from modules.routine_manager import RoutineManager
+from modules.voice_feedback import VoiceFeedbackSystem
+
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
 
@@ -424,17 +429,91 @@ class PoseScorer:
 # Initialize global scorer
 pose_scorer = PoseScorer()
 
+# --- Routine Management System ---
+class RoutineManager:
+    def __init__(self):
+        self.original_routine = []
+        self.current_routine_index = 0
+        self.emotion_detour_poses = []
+        self.detour_active = False
+        self.detour_index = 0
+        
+    def start_routine(self, poses):
+        """Initialize a new routine"""
+        self.original_routine = poses.copy()
+        self.current_routine_index = 0
+        self.emotion_detour_poses = []
+        self.detour_active = False
+        self.detour_index = 0
+        
+    def get_current_pose(self):
+        """Get the current pose based on routine state"""
+        if self.detour_active and self.detour_index < len(self.emotion_detour_poses):
+            return self.emotion_detour_poses[self.detour_index]
+        elif self.current_routine_index < len(self.original_routine):
+            return self.original_routine[self.current_routine_index]
+        else:
+            return None  # Routine complete
+            
+    def advance_pose(self):
+        """Move to the next pose"""
+        if self.detour_active:
+            self.detour_index += 1
+            # Check if detour is complete
+            if self.detour_index >= len(self.emotion_detour_poses):
+                self._end_detour()
+        else:
+            self.current_routine_index += 1
+            
+    def start_emotion_detour(self, emotion_poses):
+        """Start an emotion-based detour"""
+        self.detour_active = True
+        self.emotion_detour_poses = emotion_poses
+        self.detour_index = 0
+        
+    def _end_detour(self):
+        """End emotion detour and return to original routine"""
+        self.detour_active = False
+        self.emotion_detour_poses = []
+        self.detour_index = 0
+        
+    def is_routine_complete(self):
+        """Check if the entire routine is complete"""
+        return (not self.detour_active and 
+                self.current_routine_index >= len(self.original_routine))
+        
+    def get_progress_info(self):
+        """Get current progress information"""
+        total_original = len(self.original_routine)
+        completed_original = self.current_routine_index
+        
+        status = "detour" if self.detour_active else "routine"
+        
+        return {
+            'total_poses': total_original,
+            'completed_poses': completed_original,
+            'current_pose_number': completed_original + 1,
+            'status': status,
+            'detour_progress': f"{self.detour_index + 1}/{len(self.emotion_detour_poses)}" if self.detour_active else None,
+            'routine_complete': self.is_routine_complete(),
+            'current_pose': self.get_current_pose()
+        }
+
+# Initialize global routine manager
+routine_manager = RoutineManager()
+
 # --- Voice Feedback System ---
 class VoiceFeedbackSystem:
     def __init__(self):
         self.last_feedback_time = 0
-        self.feedback_cooldown = 3
+        self.feedback_cooldown = 2  # Reduced from 3 to 2 seconds for more responsive feedback
         self.last_pose_state = None
         self.correct_pose_start = None
         self.audio_enabled = True
         try:
             pygame.mixer.pre_init(frequency=22050, size=-16, channels=2, buffer=512)
             pygame.mixer.init()
+            print("Voice feedback system initialized successfully")
         except pygame.error as e:
             print(f"Warning: Could not initialize audio system: {e}")
             self.audio_enabled = False
@@ -570,7 +649,9 @@ class VoiceFeedbackSystem:
         return current_time - self.last_feedback_time > self.feedback_cooldown
 
     def give_feedback(self, is_correct, pose_name, incorrect_angles=None):
+        print(f"Voice feedback called: is_correct={is_correct}, pose={pose_name}, audio_enabled={self.audio_enabled}")
         if not self.should_give_feedback():
+            print("Feedback skipped due to cooldown")
             return
         current_time = time.time()
         message = None
@@ -585,8 +666,10 @@ class VoiceFeedbackSystem:
                 elif self.last_pose_state is None:
                     message = f"Great! You're in the correct {pose_name} pose!"
                 self.correct_pose_start = current_time
-            elif self.correct_pose_start and (current_time - self.correct_pose_start) > 10 and (current_time - self.correct_pose_start) % 10 < 3:
+            elif self.correct_pose_start and (current_time - self.correct_pose_start) > 8:
+                # Give encouragement every 8 seconds during correct poses
                 message = random.choice(pose_feedback['encouragement'])
+                self.correct_pose_start = current_time  # Reset timer for next encouragement
         else:
             if self.last_pose_state == 'correct' or self.last_pose_state is None:
                 if incorrect_angles and len(incorrect_angles) <= 2:
@@ -596,15 +679,23 @@ class VoiceFeedbackSystem:
                     message = random.choice(pose_feedback['general'])
         
         if message:
+            print(f"Playing voice message: '{message}'")
             self.generate_and_play_speech(message)
             self.last_feedback_time = current_time
+        else:
+            print("No message generated for voice feedback")
         self.last_pose_state = 'correct' if is_correct else 'incorrect'
 
 voice_feedback = VoiceFeedbackSystem()
 
 # --- Pose Accuracy Model Setup ---
 mp_pose = mp.solutions.pose
-pose = mp_pose.Pose(static_image_mode=False, min_detection_confidence=0.5)
+pose = mp_pose.Pose(
+    static_image_mode=False, 
+    min_detection_confidence=0.5,
+    min_tracking_confidence=0.5,
+    model_complexity=1  # Use lighter model (0=lite, 1=full, 2=heavy)
+)
 
 # --- Load Poses Data ---
 with open('poses.json', 'r') as f:
@@ -830,6 +921,11 @@ def get_coords(landmarks, idx, width, height):
     lm = landmarks[idx]
     return (int(lm.x * width), int(lm.y * height))
 
+def get_coords_scaled(landmarks, idx, width, height):
+    """Get coordinates scaled to the specified dimensions"""
+    lm = landmarks[idx]
+    return (int(lm.x * width), int(lm.y * height))
+
 def extract_angles(landmarks, width, height):
     angles = {}
     for name, idxs in ANGLE_LANDMARKS.items():
@@ -868,58 +964,129 @@ def start_session():
     # Fallback if poses is empty or not a list of dicts
     if not poses or not isinstance(poses, list) or not isinstance(poses[0], dict):
         poses = [{'name': 'Tree', 'image': 'images/tree.png'}]
-    session['pose_sequence'] = poses
-    session['current_pose_index'] = 0
+    
+    # Initialize routine manager with the original poses
+    routine_manager.start_routine(poses)
+    
+    # Store in session for backup
+    session['original_pose_sequence'] = poses
+    session['session_start_time'] = datetime.now().isoformat()
+    
     return jsonify({'redirect': url_for('pose_accuracy')})
 
 @app.route('/next_pose', methods=['POST'])
 def next_pose():
-    current_index = session.get('current_pose_index', 0)
-    pose_sequence = session.get('pose_sequence', [])
-    current_emotion = request.json.get('emotion', 'neutral') if request.is_json else 'neutral'
+    data = request.json
+    current_emotion = data.get('emotion', 'neutral')
     
-    if current_index >= len(pose_sequence):
-        # Workout complete
-        session.clear()
+    # Check if routine is complete
+    if routine_manager.is_routine_complete():
+        # Give completion feedback
+        voice_feedback.generate_and_play_speech("Congratulations! You have completed your entire yoga routine! Great job!")
+        return jsonify({
+            'success': True,
+            'workout_complete': True,
+            'message': 'Congratulations! You have completed your entire yoga routine!',
+            'progress': routine_manager.get_progress_info()
+        })
+    
+    # Get current pose to determine if we need emotion adaptation
+    current_pose = routine_manager.get_current_pose()
+    if not current_pose:
+        voice_feedback.generate_and_play_speech("Workout completed! Well done!")
+        return jsonify({
+            'success': True,
+            'workout_complete': True,
+            'message': 'Workout completed!',
+            'progress': routine_manager.get_progress_info()
+        })
+    
+    # Give success feedback for completing the current pose
+    current_pose_name = current_pose['name']
+    success_messages = [
+        f"Great job on {current_pose_name}! Moving to the next pose.",
+        f"Excellent {current_pose_name}! Let's continue.",
+        f"Perfect {current_pose_name}! Well done!",
+        f"Beautiful {current_pose_name}! Keep up the great work!"
+    ]
+    import random
+    success_message = random.choice(success_messages)
+    voice_feedback.generate_and_play_speech(success_message)
+    
+    # Advance to next pose
+    routine_manager.advance_pose()
+    
+    # Get the next pose
+    next_pose_data = routine_manager.get_current_pose()
+    
+    # If no next pose, routine is complete
+    if not next_pose_data:
+        voice_feedback.generate_and_play_speech("Amazing! Your workout is complete!")
         return jsonify({
             'success': True,
             'workout_complete': True,
             'message': 'Great job! Your workout is complete!',
-            'recommendation_type': 'complete'
+            'progress': routine_manager.get_progress_info()
         })
     
-    # Get current pose name for adaptive recommendation
-    current_pose_name = pose_sequence[current_index]['name']
+    # Check if we need emotion-based adaptation for the NEXT pose
+    recommendation_type = "continue"
+    emotion_message = ""
     
-    # Get adaptive recommendation based on emotion
-    recommended_pose, recommendation_type, emotion = get_adaptive_pose_recommendation(
-        current_emotion, current_pose_name, pose_sequence, current_index
-    )
+    # Only adapt if we're not already in a detour AND emotion suggests adaptation
+    if not routine_manager.detour_active:
+        if current_emotion in ['angry', 'sad', 'fear']:
+            # User is struggling - insert rest poses before next pose
+            rest_poses = [
+                {'name': 'Child\'s Pose', 'image': 'images/childs_pose.webp'},
+                {'name': 'Corpse Pose', 'image': 'images/corpse.jpg'}
+            ]
+            routine_manager.start_emotion_detour(rest_poses, "easier")
+            next_pose_data = routine_manager.get_current_pose()
+            recommendation_type = "easier"
+            emotion_message = "I sense you might need a break. Let's try some gentle poses."
+            
+        elif current_emotion in ['happy', 'surprise']:
+            # User is confident - insert challenging poses
+            challenging_poses = [
+                {'name': 'Wheel', 'image': 'images/wheel.webp'}
+            ]
+            routine_manager.start_emotion_detour(challenging_poses, "challenging")
+            next_pose_data = routine_manager.get_current_pose()
+            recommendation_type = "challenging"
+            emotion_message = "You're doing great! Let's add a challenge."
     
-    if recommendation_type == "complete" or recommended_pose is None:
-        # Workout complete
-        session.clear()
-        return jsonify({
-            'success': True,
-            'workout_complete': True,
-            'message': 'Great job! Your workout is complete!',
-            'recommendation_type': 'complete'
-        })
+    pose_name = next_pose_data['name']
+    pose_image_path = get_pose_image_path(pose_name)
+    pose_image = url_for('static', filename=pose_image_path)
     
-    # Update session - if adaptive recommendation, modify the sequence
-    if recommendation_type in ["easier", "more challenging"]:
-        # Replace next pose with recommended pose
-        if current_index + 1 < len(pose_sequence):
-            pose_sequence[current_index + 1] = recommended_pose
+    # Get updated progress
+    progress = routine_manager.get_progress_info()
+    
+    # Create appropriate announcement based on whether we're in a detour
+    if routine_manager.detour_active:
+        # We're starting or continuing a detour
+        if emotion_message:
+            # Just started a detour - announce the emotion message first
+            voice_feedback.generate_and_play_speech(f"{emotion_message} Now let's do {pose_name}.")
         else:
-            pose_sequence.append(recommended_pose)
-        session['pose_sequence'] = pose_sequence
-    
-    # Move to next pose
-    session['current_pose_index'] = current_index + 1
-    
-    pose_name = recommended_pose['name']
-    pose_image = url_for('static', filename=recommended_pose['image'])
+            # Continuing existing detour
+            if progress['status'] == 'detour':
+                detour_type = getattr(routine_manager, 'detour_type', 'special')
+                if detour_type == "easier":
+                    voice_feedback.generate_and_play_speech(f"Continuing with gentle poses. Now let's do {pose_name}.")
+                elif detour_type == "challenging":
+                    voice_feedback.generate_and_play_speech(f"Continuing with challenging poses. Now let's do {pose_name}.")
+                else:
+                    voice_feedback.generate_and_play_speech(f"Now let's do {pose_name}.")
+    else:
+        # Check if we just returned from a detour
+        if hasattr(routine_manager, 'returning_from_detour') and routine_manager.returning_from_detour:
+            voice_feedback.generate_and_play_speech(f"Great work! Now returning to your main routine. Let's do {pose_name}.")
+            routine_manager.returning_from_detour = False  # Reset the flag
+        else:
+            # Regular routine progression
+            voice_feedback.generate_and_play_speech(f"Now let's do {pose_name}.")
     
     return jsonify({
         'success': True,
@@ -927,11 +1094,14 @@ def next_pose():
         'pose_name': pose_name,
         'pose_image': pose_image,
         'recommendation_type': recommendation_type,
-        'emotion': emotion,
-        'announcement': f"Adapting based on your emotion: {pose_name}"
+        'emotion': current_emotion,
+        'progress': progress,
+        'announcement': get_pose_announcement(pose_name, recommendation_type, current_emotion, progress),
+        'success_message': success_message,
+        'emotion_message': emotion_message
     })
 
-@app.route('/announce_next_pose', methods=['POST'])  # Fixed: Added closing quote and bracket
+@app.route('/announce_next_pose', methods=['POST'])
 def announce_next_pose():
     """Generate TTS announcement for next pose with countdown and emotion-based adaptation"""
     data = request.json
@@ -1006,18 +1176,104 @@ def announce_next_pose():
     
     return jsonify({'success': True})
 
+def get_pose_image_path(pose_name):
+    """Get the correct image path for a pose, with fallbacks for different file extensions"""
+    # Clean pose name for filename matching
+    clean_name = pose_name.lower().replace(' ', '_').replace("'", '').replace('-', '_')
+    
+    # Define possible image extensions
+    extensions = ['.png', '.jpg', '.webp', '.jpeg']
+    
+    # Define image name mappings for poses that might have different names
+    image_mappings = {
+        'tree': 'tree',
+        'bridge': 'bridge', 
+        'cat': 'cat',
+        'cow': 'cow',
+        'child_pose': 'childs_pose',
+        'childs_pose': 'childs_pose',
+        'corpse_pose': 'corpse',
+        'corpse': 'corpse',
+        'downward_facing_dog': 'downward_facing_dog',
+        'mountain_pose': 'mountain',
+        'mountain': 'mountain',
+        'warrior_i': 'warrior_one',
+        'warrior_1': 'warrior_one',
+        'warrior_one': 'warrior_one',
+        'warrior_ii': 'warrior_two',
+        'warrior_2': 'warrior_two', 
+        'warrior_two': 'warrior_two',
+        'wheel': 'wheel',
+        'plank': 'plank',
+        'boat': 'boat',
+        'bow': 'bow',
+        'butterfly': 'butterfly',
+        'extended_side_angle': 'extended_side_angle',
+        'half_boat': 'half_boat',
+        'half_moon': 'half_moon',
+        'legs_up_the_wall': 'legs_up_the_wall',
+        'pigeon': 'pigeon',
+        'seated_forward_bend': 'seated_forward_bend',
+        'sphinx': 'sphinx',
+        'upward_facing_dog': 'upward_facing_dog'
+    }
+    
+    # Get the mapped image name or use the clean name
+    image_name = image_mappings.get(clean_name, clean_name)
+    
+    # Try different extensions
+    for ext in extensions:
+        image_path = f'images/{image_name}{ext}'
+        full_path = os.path.join('static', image_path)
+        if os.path.exists(full_path):
+            return image_path
+    
+    # Fallback to tree pose if image not found
+    return 'images/tree.png'
+
+def get_pose_announcement(pose_name, recommendation_type, emotion, progress):
+    """Generate appropriate announcement based on context"""
+    if progress['status'] == 'detour':
+        if recommendation_type == "easier":
+            return f"You seem {emotion}. Let's take a break with {pose_name}. We'll return to your routine after this."
+        elif recommendation_type == "challenging":
+            return f"Great energy! Let's try {pose_name} before continuing your routine."
+        else:
+            return f"Continuing with {pose_name}"
+    else:
+        routine_info = f"Pose {progress['current_pose_number']} of {progress['total_poses']}"
+        return f"Back to your routine! {routine_info}: {pose_name}"
+
+# Update pose_accuracy route to use routine manager
 @app.route('/pose')
 def pose_accuracy():
-    pose_sequence = session.get('pose_sequence', [])
-    current_index = session.get('current_pose_index', 0)
-    # Fallback if pose_sequence is empty or index out of range
-    if not pose_sequence or current_index >= len(pose_sequence):
-        pose = {'name': 'Tree', 'image': 'images/tree.png'}
-    else:
-        pose = pose_sequence[current_index]
-    pose_name = pose['name']
-    pose_image = url_for('static', filename=pose['image'])
-    return render_template('pose.html', pose_name=pose_name, pose_image=pose_image)
+    # Get current pose from routine manager
+    current_pose = routine_manager.get_current_pose()
+    progress = routine_manager.get_progress_info()
+    
+    if current_pose is None:
+        # No pose available, redirect back to voice interface
+        return redirect(url_for('home'))
+    
+    pose_name = current_pose['name']
+    pose_image_path = get_pose_image_path(pose_name)
+    pose_image = url_for('static', filename=pose_image_path)
+    
+    return render_template('pose.html', 
+                         pose_name=pose_name, 
+                         pose_image=pose_image,
+                         progress=progress)
+
+# Add route to get current progress
+@app.route('/get_progress', methods=['GET'])
+def get_progress():
+    """Get current routine progress"""
+    progress = routine_manager.get_progress_info()
+    
+    return jsonify({
+        'success': True,
+        'progress': progress
+    })
 
 @app.route('/start_pose_tracking', methods=['POST'])
 def start_pose_tracking():
@@ -1050,6 +1306,7 @@ def end_pose_tracking():
 # Update existing predict route to include scoring
 @app.route('/predict', methods=['POST'])
 def predict():
+    global pose
     detect_emotion = request.form.get('detect_emotion', 'false').lower() == 'true'
     file = request.files['frame']
     npimg = np.frombuffer(file.read(), np.uint8)
@@ -1067,43 +1324,86 @@ def predict():
     clf = load_pose_model(current_pose_name)
     ANGLE_THRESHOLDS = get_pose_thresholds(current_pose_name)
 
-    # Pose detection
+    # Pose detection with optimized processing
     img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    results = pose.process(img_rgb)
+    
+    # Resize frame for faster processing while maintaining accuracy
+    height, width = frame.shape[:2]
+    if width > 640:
+        scale_factor = 640 / width
+        new_width = 640
+        new_height = int(height * scale_factor)
+        img_rgb_resized = cv2.resize(img_rgb, (new_width, new_height))
+    else:
+        img_rgb_resized = img_rgb
+        scale_factor = 1.0
+    
+    try:
+        results = pose.process(img_rgb_resized)
+    except ValueError as e:
+        if "timestamp mismatch" in str(e):
+            # Reinitialize pose processor to fix timestamp issues
+            pose = mp_pose.Pose(
+                static_image_mode=False, 
+                min_detection_confidence=0.5,
+                min_tracking_confidence=0.5,
+                model_complexity=1  # Use lighter model for better performance
+            )
+            results = pose.process(img_rgb_resized)
+        else:
+            raise e
+    
     correct = False
     incorrect_angles = {}
     angles = {}
 
     if results.pose_landmarks:
         landmarks = results.pose_landmarks.landmark
-        height, width = frame.shape[:2]
-        angles = extract_angles(landmarks, width, height)
+        # Scale back coordinates if we resized the image
+        if scale_factor != 1.0:
+            display_height, display_width = frame.shape[:2]
+            angles = extract_angles(landmarks, int(display_width), int(display_height))
+        else:
+            angles = extract_angles(landmarks, width, height)
+            
         features = np.array([angles[name] for name in ANGLE_NAMES]).reshape(1, -1)
         pred = clf.predict(features)[0]
         correct = bool(pred == 1)
         
+        # Draw pose annotations on original frame for better visual quality
         for name, idxs in ANGLE_LANDMARKS.items():
-            a = get_coords(landmarks, idxs[0], width, height)
-            b = get_coords(landmarks, idxs[1], width, height)
-            c = get_coords(landmarks, idxs[2], width, height)
+            if scale_factor != 1.0:
+                # Scale coordinates back to original frame size
+                a = get_coords_scaled(landmarks, idxs[0], width, height)
+                b = get_coords_scaled(landmarks, idxs[1], width, height)
+                c = get_coords_scaled(landmarks, idxs[2], width, height)
+            else:
+                a = get_coords(landmarks, idxs[0], width, height)
+                b = get_coords(landmarks, idxs[1], width, height)
+                c = get_coords(landmarks, idxs[2], width, height)
+                
             angle = angles[name]
             min_th, max_th = ANGLE_THRESHOLDS[name]
             is_angle_correct = min_th <= angle <= max_th
             if not is_angle_correct:
                 incorrect_angles[name] = angle
             color = (0, 255, 0) if is_angle_correct else (0, 0, 255)
-            cv2.line(frame, a, b, color, 4)
-            cv2.line(frame, b, c, color, 4)
+            cv2.line(frame, a, b, color, 3)
+            cv2.line(frame, b, c, color, 3)
             cv2.putText(frame, f"{int(angle)}", b, cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-        # Pass pose name to voice feedback
-        voice_feedback.give_feedback(correct, current_pose_name, incorrect_angles if not correct else None)
+        # Pass pose name to voice feedback for both correct and incorrect poses
+        if angles:  # Only give feedback if we have valid pose data
+            voice_feedback.give_feedback(correct, current_pose_name, incorrect_angles)
 
-    # Detect emotion ONLY if detect_emotion is True
+    # Detect emotion ONLY if detect_emotion is True (reduced frequency)
+    emotion = "neutral"
     if detect_emotion:
-        emotion, emotions = detect_emotion_from_frame(frame)
-    else:
-        emotion = "neutral"
+        try:
+            emotion, emotions = detect_emotion_from_frame(frame)
+        except Exception as e:
+            print(f"Emotion detection error: {e}")
+            emotion = "neutral"
 
     # Update scoring session if active
     scoring_session_id = session.get('current_scoring_session')
@@ -1120,9 +1420,12 @@ def predict():
         if not correct and incorrect_angles:
             pose_scorer.increment_feedback(scoring_session_id)
 
-    # Draw emotion on frame
-    cv2.putText(frame, f"Emotion: {emotion}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
-    _, buffer = cv2.imencode('.jpg', frame)
+    # Draw emotion on frame with better positioning
+    cv2.putText(frame, f"Emotion: {emotion}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+    
+    # Optimize image encoding for faster transmission
+    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 85]  # Balanced quality/speed
+    _, buffer = cv2.imencode('.jpg', frame, encode_param)
     frame_b64 = base64.b64encode(buffer).decode('utf-8')
 
     return jsonify({
